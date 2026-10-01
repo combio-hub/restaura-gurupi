@@ -542,8 +542,28 @@ multi_values <- function(v,cfg){
   v*cfg$multiplier
 }
 
-make_multi_videos <- function(){
+make_multi_videos <- function(areas=NULL){  
   stopifnot(length(overlays)==length(nomez),!anyDuplicated(nomez),length(multi_years)>0)
+  # Seleção por índice ou nome; NULL seleciona todas.
+  if(is.null(areas)){
+    selected <- seq_along(nomez)
+  }else if(is.character(areas)){
+    selected <- match(areas,nomez)
+    if(anyNA(selected))stop("Áreas não encontradas: ",paste(areas[is.na(selected)],collapse=", "))
+  }else if(is.numeric(areas)){
+    if(any(!is.finite(areas))||any(areas!=floor(areas))||any(areas<1|areas>length(nomez)))stop("Use índices inteiros entre 1 e ",length(nomez),".")
+    selected <- as.integer(areas)
+  }else{
+    stop("'areas' deve conter índices ou nomes das áreas.")
+  }
+  
+  selected <- unique(selected)
+  if(!length(selected))stop("Selecione pelo menos uma área.")
+  
+  # Alterações locais: os objetos originais permanecem disponíveis.
+  nomez <- nomez[selected]
+  overlays <- overlays[selected]
+  message("Áreas selecionadas: ",paste(nomez,collapse=", "))
   dir.create(output_dir,showWarnings=FALSE,recursive=TRUE)
   cache <- tempfile("multi_predictors_")
   dir.create(cache)
@@ -709,7 +729,8 @@ make_multi_videos <- function(){
 multi_predictors$land$colours["19"] <- "#C27BA0"
 multi_predictors$land$labels["19"] <- "Lavoura temporária"
 
-multi_videos <- make_multi_videos()
+# Fazenda Cardoso e Área de Queimada
+multi_videos <- make_multi_videos(areas=c(2,3))
 multi_videos
 
 # Static ----
