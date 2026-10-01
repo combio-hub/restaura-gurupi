@@ -742,15 +742,161 @@ googledrive::drive_download(,path = "dataset/spatial/vector/hidro_gurupi.kml")
 hidro = read_sf("dataset/spatial/vector/hidro_gurupi.kml")
 
 ## Soil granulometry ----
+### Argila ----
 clay_r = lapply(clay_files,rast)
 clay_r = rast(clay_r)
 names(clay_r) = str_extract(names(clay_r),"[0-9]+_[0-9]+")
+clay_r = st_as_stars(clay_r)
+clay_r = st_transform(clay_r, st_crs(AoI))
 
-silt_r = lapply(silt_files,rast)
-silt_r = rast(silt_r)
-names(silt_r) = str_extract(names(clay_r),"[0-9]+_[0-9]+")
+library(patchwork)
 
-sand_r = lapply(sand_files,rast)
-sand_r = rast(sand_r)
-names(sand_r) = str_extract(names(clay_r),"[0-9]+_[0-9]+")
+depth_labels <- function(x){
+  limits <- strsplit(as.character(x),"_",fixed=TRUE)
+  vapply(limits,function(z)sprintf("%02d - %02d cm",as.integer(z[1]),as.integer(z[2])),character(1))
+}
 
+location_names <- c("Fazenda Cardoso","Vila Bom Jesus","Área de Queimada")
+stopifnot(length(location_names)==nrow(AoI))
+
+clay_wrap <- st_warp(clay_r,crs=st_crs(AoI))
+names(clay_wrap) <- "clay"
+aoi_plot <- st_transform(AoI,st_crs(clay_wrap))
+buffers <- st_buffer(aoi_plot,1000)
+hidro_plot <- st_transform(hidro,st_crs(clay_wrap))
+
+# Crop each location, preserving all depth bands.
+clay_crops <- lapply(seq_len(nrow(aoi_plot)),function(i){
+  st_crop(clay_wrap,buffers[i,])
+})
+
+# Shared colour limits across locations and depths.
+clay_limits <- range(unlist(lapply(clay_crops,function(r){
+  v <- as.numeric(r[[1]])
+  range(v[is.finite(v)],na.rm=TRUE)
+})),na.rm=TRUE)
+if(any(!is.finite(clay_limits)))stop("No valid clay values in the selected areas.")
+
+clay_rows <- lapply(seq_len(nrow(aoi_plot)),function(i){
+  cropped_clay <- clay_crops[[i]]
+  aoi_i <- aoi_plot[i,]
+  buffer_i <- buffers[i,]
+  bb <- st_bbox(buffer_i)
+  rivers_i <- st_intersection(st_geometry(hidro_plot),st_geometry(buffer_i))
+  
+  ggplot()+
+    geom_stars(data=cropped_clay,aes(fill=clay),downsample=0)+
+    geom_sf(data=rivers_i,color="lightblue",alpha=0.7,linewidth=0.2)+
+    geom_sf(data=aoi_i,fill=NA,color="black",linewidth=0.5)+
+    coord_sf(crs=st_crs(clay_wrap),default_crs=st_crs(clay_wrap),xlim=unname(bb[c("xmin","xmax")]),ylim=unname(bb[c("ymin","ymax")]),expand=FALSE)+
+    facet_wrap(~attributes,nrow=1,drop=FALSE,labeller=labeller(attributes=depth_labels))+
+    scale_fill_viridis_c(name="Argila",limits=clay_limits,na.value="transparent")+
+    annotation_scale(location="br",width_hint=0.3,text_cex=0.5)+
+    annotation_north_arrow(location="tl",height=grid::unit(0.5,"cm"),width=grid::unit(0.5,"cm"))+
+    labs(title=location_names[i])+
+    theme_minimal()+
+    theme(axis.title=element_blank(),legend.justification="top",legend.position="right",legend.background=element_rect(fill=NA,colour=NA),legend.title=element_text(face="bold",size=12),legend.text=element_text(size=10),axis.text=element_text(size=6),strip.text=element_text(face="bold",size=9),plot.title=element_text(face="bold",size=12),panel.grid.minor=element_blank())
+})
+
+clay_plot <- wrap_plots(clay_rows,ncol=1,guides="collect")&
+  theme(legend.position="right")
+
+clay_plot
+
+ggsave("figures/grid_clay.tif",plot=clay_plot,width=20,height=9,units="in",dpi=300,compression="lzw")
+
+### Silte ----
+silt_r <- rast(lapply(silt_files,rast))
+names(silt_r) <- str_extract(names(silt_r),"[0-9]+_[0-9]+")
+silt_r <- st_as_stars(silt_r)
+silt_wrap <- st_warp(silt_r,crs=st_crs(AoI))
+names(silt_wrap) <- "silt"
+
+aoi_plot <- st_transform(AoI,st_crs(silt_wrap))
+buffers <- st_buffer(aoi_plot,1000)
+hidro_plot <- st_transform(hidro,st_crs(silt_wrap))
+
+silt_crops <- lapply(seq_len(nrow(aoi_plot)),function(i){
+  st_crop(silt_wrap,buffers[i,])
+})
+
+silt_limits <- range(unlist(lapply(silt_crops,function(r){
+  v <- as.numeric(r[[1]])
+  v <- v[is.finite(v)]
+  if(length(v))range(v)else NULL
+})),na.rm=TRUE)
+if(any(!is.finite(silt_limits)))stop("Sem valores válidos de silte nas áreas selecionadas.")
+
+silt_rows <- lapply(seq_len(nrow(aoi_plot)),function(i){
+  cropped_silt <- silt_crops[[i]]
+  aoi_i <- aoi_plot[i,]
+  buffer_i <- buffers[i,]
+  bb <- st_bbox(buffer_i)
+  rivers_i <- st_intersection(st_geometry(hidro_plot),st_geometry(buffer_i))
+  
+  ggplot()+
+    geom_stars(data=cropped_silt,aes(fill=silt),downsample=0)+
+    geom_sf(data=rivers_i,color="lightblue",alpha=0.7,linewidth=0.2)+
+    geom_sf(data=aoi_i,fill=NA,color="black",linewidth=0.5)+
+    coord_sf(crs=st_crs(silt_wrap),default_crs=st_crs(silt_wrap),xlim=unname(bb[c("xmin","xmax")]),ylim=unname(bb[c("ymin","ymax")]),expand=FALSE)+
+    facet_wrap(~attributes,nrow=1,drop=FALSE,labeller=labeller(attributes=depth_labels))+
+    scale_fill_viridis_c(name="Silte",limits=silt_limits,na.value="transparent")+
+    annotation_scale(location="br",width_hint=0.3,text_cex=0.5)+
+    annotation_north_arrow(location="tl",height=grid::unit(0.5,"cm"),width=grid::unit(0.5,"cm"))+
+    labs(title=location_names[i])+
+    theme_minimal()+
+    theme(axis.title=element_blank(),legend.justification="top",legend.position="right",legend.background=element_rect(fill=NA,colour=NA),legend.title=element_text(face="bold",size=12),legend.text=element_text(size=10),axis.text=element_text(size=6),strip.text=element_text(face="bold",size=9),plot.title=element_text(face="bold",size=12),panel.grid.minor=element_blank())
+})
+
+silt_plot <- wrap_plots(silt_rows,ncol=1,guides="collect")&
+  theme(legend.position="right")
+
+ggsave("figures/grid_silt.tif",plot=silt_plot,width=20,height=9,units="in",dpi=300,compression="lzw")
+
+### Areia ----
+sand_r <- rast(lapply(sand_files,rast))
+names(sand_r) <- str_extract(names(sand_r),"[0-9]+_[0-9]+")
+sand_r <- st_as_stars(sand_r)
+sand_wrap <- st_warp(sand_r,crs=st_crs(AoI))
+names(sand_wrap) <- "sand"
+
+aoi_plot <- st_transform(AoI,st_crs(sand_wrap))
+buffers <- st_buffer(aoi_plot,1000)
+hidro_plot <- st_transform(hidro,st_crs(sand_wrap))
+
+sand_crops <- lapply(seq_len(nrow(aoi_plot)),function(i){
+  st_crop(sand_wrap,buffers[i,])
+})
+
+sand_limits <- range(unlist(lapply(sand_crops,function(r){
+  v <- as.numeric(r[[1]])
+  v <- v[is.finite(v)]
+  if(length(v))range(v)else NULL
+})),na.rm=TRUE)
+if(any(!is.finite(sand_limits)))stop("Sem valores válidos de areia nas áreas selecionadas.")
+
+sand_rows <- lapply(seq_len(nrow(aoi_plot)),function(i){
+  cropped_sand <- sand_crops[[i]]
+  aoi_i <- aoi_plot[i,]
+  buffer_i <- buffers[i,]
+  bb <- st_bbox(buffer_i)
+  rivers_i <- st_intersection(st_geometry(hidro_plot),st_geometry(buffer_i))
+  
+  ggplot()+
+    geom_stars(data=cropped_sand,aes(fill=sand),downsample=0)+
+    geom_sf(data=rivers_i,color="lightblue",alpha=0.7,linewidth=0.2)+
+    geom_sf(data=aoi_i,fill=NA,color="black",linewidth=0.5)+
+    coord_sf(crs=st_crs(sand_wrap),default_crs=st_crs(sand_wrap),xlim=unname(bb[c("xmin","xmax")]),ylim=unname(bb[c("ymin","ymax")]),expand=FALSE)+
+    facet_wrap(~attributes,nrow=1,drop=FALSE,labeller=labeller(attributes=depth_labels))+
+    scale_fill_viridis_c(name="Areia",limits=sand_limits,na.value="transparent")+
+    annotation_scale(location="br",width_hint=0.3,text_cex=0.5)+
+    annotation_north_arrow(location="tl",height=grid::unit(0.5,"cm"),width=grid::unit(0.5,"cm"))+
+    labs(title=location_names[i])+
+    theme_minimal()+
+    theme(axis.title=element_blank(),legend.justification="top",legend.position="right",legend.background=element_rect(fill=NA,colour=NA),legend.title=element_text(face="bold",size=12),legend.text=element_text(size=10),axis.text=element_text(size=6),strip.text=element_text(face="bold",size=9),plot.title=element_text(face="bold",size=12),panel.grid.minor=element_blank())
+})
+
+sand_plot <- wrap_plots(sand_rows,ncol=1,guides="collect")&
+  theme(legend.position="right")
+
+ggsave("figures/grid_sand.tif",plot=sand_plot,width=20,height=9,units="in",dpi=300,compression="lzw")
