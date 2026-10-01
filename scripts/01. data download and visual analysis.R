@@ -730,7 +730,7 @@ multi_predictors$land$colours["19"] <- "#C27BA0"
 multi_predictors$land$labels["19"] <- "Lavoura temporária"
 
 # Fazenda Cardoso e Área de Queimada
-multi_videos <- make_multi_videos(areas=c(2,3))
+multi_videos <- make_multi_videos(areas=1:3)
 multi_videos
 
 # Static ----
